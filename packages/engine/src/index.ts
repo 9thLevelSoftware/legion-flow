@@ -29,4 +29,5 @@ export { evalWorkflow, EVAL_WORKFLOW_ID } from "./eval-workflow.js";
 export type { EvalPorts, EvalInput, EvalScorer, EvalScoreOutcome } from "./eval-workflow.js";
 export { broadcastWorkflow, recommendCandidate, type BroadcastCandidate } from "./broadcast-workflow.js";
 export { challengeWorkflow, parseChallengeOutput, renderChallengePrompt, type ChallengeInput, type ChallengeResult, type ChallengePorts } from "./challenge-workflow.js";
+export { draftWorkflow, parseDraftOutput, renderDraftPrompt, type DraftInput, type DraftResult, type DraftParse, type DraftPorts } from "./draft-workflow.js";
 export { observationNamingWorkflow, parseNamingOutput, renderNamingPrompt, NAMING_FACTS_MAX, NAMING_TIMEOUT_MS, type NamingInput, type NamingResult, type NamingPorts, type NamingFact } from "./naming-workflow.js";

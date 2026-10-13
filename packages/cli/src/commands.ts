@@ -37,11 +37,12 @@ import {
 } from "@9thlevelsoftware/legion-flow-engine";
 import { adapterById, adaptersDistDir, definitionOf, agentDockerfile, agentImageTag } from "@9thlevelsoftware/legion-flow-adapters";
 import type { Adapter } from "@9thlevelsoftware/legion-flow-engine";
-import { selectBatch, broadcastWorkflow, recommendCandidate, challengeWorkflow, observationNamingWorkflow, type BroadcastCandidate, type ChallengeResult, type NamingResult, type StepRunner } from "@9thlevelsoftware/legion-flow-engine";
+import { selectBatch, broadcastWorkflow, recommendCandidate, challengeWorkflow, observationNamingWorkflow, draftWorkflow, type BroadcastCandidate, type ChallengeResult, type NamingResult, type StepRunner, type DraftParse, type DraftResult } from "@9thlevelsoftware/legion-flow-engine";
 import { reviewWorkflow, evalWorkflow, type AppliedProposalSummary, type ReviewInput, type EvalInput } from "@9thlevelsoftware/legion-flow-engine";
 import { createMetricScorer, judgeUrlProblem } from "@9thlevelsoftware/legion-flow-evals";
 import { ProposalSchema, loopbackUrlProblem, type EgressRoute, type ReviewReceipt } from "@9thlevelsoftware/legion-flow-schema";
-import { atomicWriteFile, fingerprintTree, type TreeMode } from "@9thlevelsoftware/legion-flow-persist";
+import { atomicWriteFile, fingerprintTree, specFingerprint, planFingerprint, type TreeMode } from "@9thlevelsoftware/legion-flow-persist";
+import { SpecSchema, PlanSchema, type Spec, type SpecDraft } from "@9thlevelsoftware/legion-flow-schema";
 import type { DockerSettings, EnforcementReport, SpawnKind, SpawnVerdict } from "@9thlevelsoftware/legion-flow-sandbox";
 import { createEvidenceTracing } from "@9thlevelsoftware/legion-flow-evidence";
 import { challengeStatus, BROWSER_SERVER_NAME, WEB_SERVER_NAME, browserSessionProblem, type BrowserSession } from "@9thlevelsoftware/legion-flow-schema";
@@ -459,8 +460,11 @@ export interface SpecOptions {
   approver?: string;
   sandbox?: string;
   allowNoSandbox?: boolean;
+  /** Have the default adapter draft (or redraft) the spec from this request. */
+  draft?: string;
   /** Test seams. */
   adapterTimeoutMs?: number;
+  now?: Date;
 }
 
 function specDiagnostics(spec: Extract<LoadSpecResult, { kind: "valid" }>): Diagnostic[] {
@@ -488,6 +492,7 @@ function specDiagnostics(spec: Extract<LoadSpecResult, { kind: "valid" }>): Diag
 
 export const specCommand: CommandHandler<SpecOptions> = async (ctx, opts) => {
   const ws = ctx.workspace;
+  if (opts.draft !== undefined) return specDraftCommand(ctx, opts);
   if (opts.challenge || opts.resolve !== undefined || opts.agent) return specChallengeCommand(ctx, opts);
 
   if (opts.new !== undefined) {
@@ -697,11 +702,210 @@ async function specChallengeCommand(ctx: Parameters<CommandHandler>[0], opts: Sp
 }
 
 // ---------------------------------------------------------------------------
+// drafting: spec --draft and plan --draft
+// ---------------------------------------------------------------------------
+
+const untrustedDraft = (text: string) => `<untrusted-content source="drafter">${text.replace(/<\/?untrusted-content[^>]*>/gi, "")}</untrusted-content>`;
+/** A contract entry that opens the whole tree to every later execute; a reviewer skimming JSON should not miss it. */
+const WHOLE_TREE = new Set(["*", "**", "**/*", ".", "./", "/"]);
+
+/** Run the drafter in the project's tier: the shared preparation, preflight, and redaction of every agent spawn. */
+async function runDrafter(
+  ctx: Parameters<CommandHandler>[0],
+  project: ValidProject,
+  held: Parameters<typeof runWorkflow>[2],
+  mode: "spec" | "plan",
+  opts: { sandbox?: string; allowNoSandbox?: boolean; adapterTimeoutMs?: number; now?: Date },
+  input: { request: string; place: string[]; spec?: { id: string; title: string; acceptanceCriteria: Spec["acceptanceCriteria"] } }
+): Promise<{ ok: true; parse: DraftParse; runId: string; adapter: Adapter } | { ok: false; envelope: ResultEnvelope }> {
+  const ws = ctx.workspace;
+  const now = opts.now ?? new Date();
+  const tierId = (opts.sandbox ?? "vm-docker") as SandboxTierId;
+  const adapter = adapterFor(project.config.adapter.default, project.config);
+  if (!adapter) return { ok: false, envelope: refusal(mode, project, "adapter_unknown", `Adapter '${project.config.adapter.default}' is not registered in this build.`) };
+  const prepared = await prepareTier(ctx, project, adapter, tierId, { ...(opts.allowNoSandbox ? { allowNoSandbox: true } : {}) }, mode, "drafter");
+  if (!prepared.ok) return prepared;
+  const preflighted = await preflightTier(ws, project, prepared.tier, mode);
+  if (!preflighted.ok) return preflighted;
+  const t = prepared.tier;
+  const source = await fingerprintTree(ws.root, { mode: t.sourceMode });
+  const result = await runWorkflow(ws, draftWorkflow({ ws, materializer: createMaterializer({ tier: t.tierId, strategy: "copy", paths: ws.paths, runId: "pending", settings: t.dockerSettings, docker: realDockerCli, routes: t.routes, egressDistDir: egressDistDir(), secrets: t.secrets, now: () => now })!, adapter, ...(opts.adapterTimeoutMs ? { adapterTimeoutMs: opts.adapterTimeoutMs } : {}), envMode: t.report.isSandbox ? "container" : "host", tierEvidence: preflighted.tierEvidence, redactValues: [...(adapter.credential && process.env[adapter.credential.env] ? [process.env[adapter.credential.env]!] : []), ...Object.values(t.secrets)] }, mode), held, {
+    input: { mode, workspaceRoot: ws.root, sourceMode: t.sourceMode, sourceFingerprint: source.fingerprint, request: input.request, place: input.place, ...(input.spec ? { spec: input.spec } : {}), ...(project.config.adapter.http?.model ? { model: project.config.adapter.http.model } : {}) } as unknown as Record<string, unknown>,
+    durability: "sync",
+    now: () => now,
+  });
+  const runId = result.runId ?? "unknown";
+  if (result.kind !== "complete") return { ok: true, parse: { ok: false, reason: `the drafting run ended ${result.kind}` }, runId, adapter };
+  return { ok: true, parse: (result.values.draft as DraftResult).parse, runId, adapter };
+}
+
+function renderDraftedSpecMarkdown(spec: Spec, draft: SpecDraft, by: string, runId: string, request: string): string {
+  return [
+    `# ${spec.title}`,
+    "",
+    `Specification \`${spec.id}\`. Drafted by ${by} in run ${runId} from the request: "${request.replace(/\s+/g, " ").slice(0, 300)}". Review it before approving; once approved it is the decision owner's.`,
+    "This file is the prose half; `spec.json` beside it is the typed half. Both are fingerprinted together: editing either after approval invalidates the approval.",
+    "",
+    "## Intent",
+    "",
+    draft.intent,
+    "",
+    "## Acceptance criteria",
+    "",
+    ...draft.acceptanceCriteria.map((c) => `- **${c.id}** (${c.kind}, ${c.surface}, ${c.priority}): ${c.statement}`),
+    "",
+    "## Out of scope",
+    "",
+    draft.outOfScope && draft.outOfScope.length ? draft.outOfScope : "Not stated by the draft.",
+    "",
+  ].join("\n");
+}
+
+const draftedBy = (adapter: Adapter, project: ValidProject) => `${adapter.id}${project.config.adapter.http?.model ? ` ${project.config.adapter.http.model}` : ""}`;
+
+async function specDraftCommand(ctx: Parameters<CommandHandler>[0], opts: SpecOptions): Promise<ResultEnvelope> {
+  const ws = ctx.workspace;
+  const request = (opts.draft ?? "").trim();
+  if (opts.new !== undefined || opts.challenge || opts.resolve !== undefined || opts.agent) {
+    return envelope("spec", "usage_error", phaseOf(await ws.project.load()), [{ code: "draft_exclusive", severity: "error", message: "--draft takes only a request and the sandbox options; it does not combine with --new, --challenge, --agent, or --resolve." }], { type: "command", run: 'legion-flow spec --draft "<what you want>"' });
+  }
+  if (request.length === 0 || request.length > 4000) return envelope("spec", "usage_error", phaseOf(await ws.project.load()), [{ code: "draft_request_required", severity: "error", message: "--draft needs a request of 1 to 4000 characters: what the change is for." }], { type: "command", run: 'legion-flow spec --draft "<what you want>"' });
+  const now = opts.now ?? new Date();
+  try {
+    return await ws.lock.withLock(async (held) => {
+      const project = await ws.project.load();
+      if (project.kind !== "valid") return projectUnusableRefusal("spec", project);
+      if (project.phase !== "initialized" && project.phase !== "spec_draft") {
+        return refusal("spec", project, "draft_phase", `spec --draft writes a new or still-unapproved spec; the project is at ${project.phase}.`, project.phase === "spec_frozen" || project.phase === "planning" ? "FIX: the spec is approved; drafting it again would invalidate that approval. Draft the plan instead: legion-flow plan --draft" : undefined);
+      }
+      const currentId = project.config.current?.specId;
+      const current = currentId ? await ws.specs.load(currentId) : null;
+      const existing = current && current.kind === "valid" ? current : null;
+      const rel = existing ? relative(ws.root, existing.dir).split(sep).join("/") : null;
+      const ran = await runDrafter(ctx, project, held, "spec", opts, { request, place: rel ? [`${rel}/spec.json`, `${rel}/SPEC.md`] : [] });
+      if (!ran.ok) return ran.envelope;
+      if (!ran.parse.ok || ran.parse.mode !== "spec") {
+        return refusal("spec", project, "draft_invalid", `The drafting agent's answer was not usable (${ran.parse.ok ? "wrong kind" : ran.parse.reason}); nothing was written. Run ${ran.runId} keeps its raw answer as evidence.`, 'FIX: run legion-flow spec --draft again, more specifically, or write the spec by hand (spec --new).');
+      }
+      const draft = ran.parse.draft;
+      let dir: string;
+      let base: { id: string; createdAt: string };
+      let created = false;
+      if (existing) {
+        dir = existing.dir;
+        base = { id: existing.spec.id, createdAt: existing.spec.createdAt };
+      } else {
+        const made = await ws.specs.create(draft.title, held);
+        await ws.project.setCurrent({ specId: made.spec.id }, held);
+        await ws.audit.append({ type: "spec_created", specId: made.spec.id, title: draft.title, fingerprint: made.fingerprint }, held);
+        dir = made.dir;
+        base = { id: made.spec.id, createdAt: made.spec.createdAt };
+        created = true;
+      }
+      const spec = SpecSchema.parse({ schema: SCHEMA_VERSIONS.SPEC, id: base.id, title: draft.title, acceptanceCriteria: draft.acceptanceCriteria, createdAt: base.createdAt });
+      const markdown = renderDraftedSpecMarkdown(spec, draft, draftedBy(ran.adapter, project), ran.runId, request);
+      await atomicWriteFile(join(dir, "spec.json"), JSON.stringify(spec, null, 2) + "\n");
+      await atomicWriteFile(join(dir, "SPEC.md"), markdown);
+      const fingerprint = specFingerprint(spec, markdown);
+      await ws.audit.append({ type: "spec_drafted", specId: spec.id, runId: ran.runId, adapter: ran.adapter.id, created, criteria: spec.acceptanceCriteria.length, fingerprint }, held);
+      const challenged = !created && ((await readChallenge(dir))?.rounds.length ?? 0) > 0;
+      const phase = phaseOf(await ws.project.load(now));
+      return envelope("spec", "ok", phase, [
+        { code: "spec_drafted", severity: "info", message: `${created ? "Created" : "Rewrote"} draft spec ${spec.id} from the drafting agent's answer (${draftedBy(ran.adapter, project)}, run ${ran.runId}); agent-written and unverified until you approve it.`, path: dir },
+        { code: "spec_title", severity: "info", message: `Title: ${untrustedDraft(spec.title)}` },
+        ...spec.acceptanceCriteria.map((c): Diagnostic => ({ code: "spec_criterion", severity: "info", message: `${c.id} (${c.kind}, ${c.surface}, ${c.priority}): ${untrustedDraft(c.statement)}` })),
+        { code: "spec_fingerprint", severity: "info", message: `Fingerprint ${fingerprint}` },
+        ...(challenged ? [{ code: "challenge_stale", severity: "warning" as const, message: "Earlier challenge rounds were against the previous draft and are now stale; run spec --challenge again if you want one." }] : []),
+        { code: "draft_review", severity: "warning", message: "Read SPEC.md and spec.json before approving; edit them freely, or run spec --draft again with a sharper request." },
+      ], nextActionFor(phase));
+    }, "spec --draft");
+  } catch (err: unknown) {
+    if (err instanceof LockAcquisitionError) return lockHeldRefusal("spec", ws, err);
+    throw err;
+  }
+}
+
+async function planDraftCommand(ctx: Parameters<CommandHandler>[0], opts: PlanOptions): Promise<ResultEnvelope> {
+  const ws = ctx.workspace;
+  const request = typeof opts.draft === "string" ? opts.draft.trim() : "";
+  if (opts.new) return envelope("plan", "usage_error", phaseOf(await ws.project.load()), [{ code: "draft_exclusive", severity: "error", message: "--draft and --new do not combine; --draft creates the plan when there is none." }], { type: "command", run: "legion-flow plan --draft" });
+  if (request.length > 4000) return envelope("plan", "usage_error", phaseOf(await ws.project.load()), [{ code: "draft_request_too_long", severity: "error", message: "Guidance is at most 4000 characters." }], { type: "command", run: "legion-flow plan --draft" });
+  const now = opts.now ?? new Date();
+  try {
+    return await ws.lock.withLock(async (held) => {
+      const project = await ws.project.load();
+      if (project.kind !== "valid") return projectUnusableRefusal("plan", project);
+      if (project.phase !== "spec_frozen" && project.phase !== "planning") {
+        return refusal("plan", project, "draft_phase", `plan --draft writes a new or still-unapproved plan against an approved spec; the project is at ${project.phase}.`, project.phase === "spec_draft" || project.phase === "initialized" ? "FIX: approve the spec first (a decision owner): legion-flow approve spec --approver <id>" : undefined);
+      }
+      const spec = await ws.specs.current();
+      if (!spec || spec.kind !== "valid") return refusal("plan", project, "no_current_spec", "No valid current spec.");
+      const specRel = relative(ws.root, spec.dir).split(sep).join("/");
+      const currentPlanId = project.config.current?.planId;
+      const currentPlan = currentPlanId ? await ws.plans.load(currentPlanId) : null;
+      const existing = currentPlan && currentPlan.kind === "valid" ? currentPlan : null;
+      const place = [`${specRel}/spec.json`, `${specRel}/SPEC.md`, ...(existing ? [`${relative(ws.root, existing.dir).split(sep).join("/")}/plan.json`] : [])];
+      const ran = await runDrafter(ctx, project, held, "plan", opts, { request, place, spec: { id: spec.id, title: spec.spec.title, acceptanceCriteria: spec.spec.acceptanceCriteria } });
+      if (!ran.ok) return ran.envelope;
+      if (!ran.parse.ok || ran.parse.mode !== "plan") {
+        return refusal("plan", project, "draft_invalid", `The drafting agent's answer was not usable (${ran.parse.ok ? "wrong kind" : ran.parse.reason}); nothing was written. Run ${ran.runId} keeps its raw answer as evidence.`, "FIX: run legion-flow plan --draft again with guidance, or write the plan by hand (plan --new).");
+      }
+      const draft = ran.parse.draft;
+      let dir: string;
+      let base: { id: string; createdAt: string };
+      let created = false;
+      if (existing) {
+        dir = existing.dir;
+        base = { id: existing.plan.id, createdAt: existing.plan.createdAt };
+      } else {
+        const made = await ws.plans.create({ id: spec.id, fingerprint: spec.fingerprint }, held);
+        await ws.project.setCurrent({ planId: made.plan.id }, held);
+        await ws.audit.append({ type: "plan_created", planId: made.plan.id, specId: spec.id, specFingerprint: spec.fingerprint, fingerprint: made.fingerprint }, held);
+        dir = made.dir;
+        base = { id: made.plan.id, createdAt: made.plan.createdAt };
+        created = true;
+      }
+      const plan = PlanSchema.parse({ schema: SCHEMA_VERSIONS.PLAN, id: base.id, specId: spec.id, specFingerprint: spec.fingerprint, tasks: draft.tasks.map((t) => ({ id: t.id, title: t.title, acceptanceIds: t.acceptanceIds, dependsOn: t.dependsOn, contract: { filesAllowed: t.contract.filesAllowed, verificationCommands: t.contract.verificationCommands } })), createdAt: base.createdAt });
+      await atomicWriteFile(join(dir, "plan.json"), JSON.stringify(plan, null, 2) + "\n");
+      const fingerprint = planFingerprint(plan);
+      await ws.audit.append({ type: "plan_drafted", planId: plan.id, specId: spec.id, runId: ran.runId, adapter: ran.adapter.id, created, tasks: plan.tasks.length, fingerprint }, held);
+      const validation = validatePlanAgainstSpec(plan, spec.spec, { members: memberIds(project.config.coordinator), mcpServers: (project.config.mcpServers ?? []).map((s) => s.name) });
+      const checks = plan.tasks.flatMap((t) => t.contract.verificationCommands.map((c) => ({ task: t.id, check: c })));
+      const wide = plan.tasks.flatMap((t) => t.contract.filesAllowed.filter((f) => WHOLE_TREE.has(f.trim())).map((f) => `${t.id}: "${f}"`));
+      const phase = phaseOf(await ws.project.load(now));
+      return envelope("plan", "ok", phase, [
+        { code: "plan_drafted", severity: "info", message: `${created ? "Created" : "Rewrote"} draft plan ${plan.id} against spec ${spec.id} from the drafting agent's answer (${draftedBy(ran.adapter, project)}, run ${ran.runId}); agent-written and unverified until you approve it.`, path: dir },
+        ...plan.tasks.map((t): Diagnostic => ({ code: "plan_task", severity: "info", message: `${t.id} covers ${t.acceptanceIds.join(", ") || "no criterion"}${t.dependsOn.length ? `, after ${t.dependsOn.join(", ")}` : ""}: ${untrustedDraft(t.title)}; may change ${t.contract.filesAllowed.join(", ")}` })),
+        ...(checks.length ? [{ code: "draft_checks", severity: "warning" as const, message: `The draft proposes these checks; once you approve the plan they run on this machine (without a shell): ${checks.map((c) => `${c.task}: ${untrustedDraft(c.check)}`).join("; ")}` }] : []),
+        ...checks.flatMap((c) => { const p = argvCheckProblem(c.check); return p ? [{ code: "draft_check_refused", severity: "warning" as const, message: `${c.task}'s check ${p}; approve plan will refuse it until you change it.` }] : []; }),
+        ...(wide.length ? [{ code: "draft_whole_tree", severity: "warning" as const, message: `These contracts open the whole tree to the agent on every execute: ${wide.join(", ")}. Narrow them unless that is intended.` }] : []),
+        ...(ran.parse.stripped.length ? [{ code: "draft_fields_stripped", severity: "warning" as const, message: `Removed fields a draft may not set (tools, browser, web, member, and coordinate stay human-added): ${ran.parse.stripped.join(", ")}.` }] : []),
+        ...validation.errors.map((e): Diagnostic => ({ code: e.code, severity: "warning", message: `${e.message} (approve plan will refuse this until it is fixed)` })),
+        ...validation.warnings.map((w): Diagnostic => ({ code: w.code, severity: "warning", message: w.message })),
+        ...(draft.checks?.length ? [{ code: "draft_suggested_checks", severity: "info" as const, message: `The drafter suggests freezing these at approval (your choice; nothing is applied): ${draft.checks.map((c) => untrustedDraft(c)).join("; ")}` }] : []),
+        { code: "plan_fingerprint", severity: "info", message: `Fingerprint ${fingerprint}` },
+        { code: "draft_review", severity: "warning", message: "Read plan.json before approving: each task's filesAllowed and checks are what you authorize." },
+      ], nextActionFor(phase));
+    }, "plan --draft");
+  } catch (err: unknown) {
+    if (err instanceof LockAcquisitionError) return lockHeldRefusal("plan", ws, err);
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // plan
 // ---------------------------------------------------------------------------
 
 export interface PlanOptions {
   new?: boolean;
+  /** Have the default adapter draft the plan (true with no guidance, or the guidance text). */
+  draft?: boolean | string;
+  sandbox?: string;
+  allowNoSandbox?: boolean;
+  /** Test seams. */
+  now?: Date;
+  adapterTimeoutMs?: number;
 }
 
 const TASK_SHAPE_HINT =
@@ -738,6 +942,7 @@ function planDiagnostics(plan: Extract<LoadPlanResult, { kind: "valid" }>, spec:
 
 export const planCommand: CommandHandler<PlanOptions> = async (ctx, opts) => {
   const ws = ctx.workspace;
+  if (opts.draft !== undefined && opts.draft !== false) return planDraftCommand(ctx, opts);
 
   if (opts.new) {
     try {

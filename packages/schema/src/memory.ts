@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { SCHEMA_VERSIONS } from "./versions.js";
 import { SPEC_CHALLENGE_WORKFLOW_ID } from "./challenge.js";
+import { SPEC_DRAFT_WORKFLOW_ID, PLAN_DRAFT_WORKFLOW_ID } from "./draft.js";
 
 /**
  * Memory facts (M4 slice b). Facts are bi-temporal: `validAt` is when the
@@ -33,8 +34,8 @@ export const MEMORY_WORKFLOW_IDS: readonly string[] = [MEMORY_SUPERSEDE_WORKFLOW
  */
 export const MEMORY_OBSERVE_NAME_WORKFLOW_ID = "memory_observe_name";
 export const OBSERVATION_NAMING_FILE = "naming.json";
-/** Every workflow whose runs never set the lifecycle phase: memory's, observation naming, and the spec challenge (M4 slice j3). */
-export const NON_LIFECYCLE_WORKFLOW_IDS: readonly string[] = [...MEMORY_WORKFLOW_IDS, MEMORY_OBSERVE_NAME_WORKFLOW_ID, SPEC_CHALLENGE_WORKFLOW_ID];
+/** Every workflow whose runs never set the lifecycle phase: memory's, observation naming, the spec challenge (M4 slice j3), and drafting. */
+export const NON_LIFECYCLE_WORKFLOW_IDS: readonly string[] = [...MEMORY_WORKFLOW_IDS, MEMORY_OBSERVE_NAME_WORKFLOW_ID, SPEC_CHALLENGE_WORKFLOW_ID, SPEC_DRAFT_WORKFLOW_ID, PLAN_DRAFT_WORKFLOW_ID];
 export const OBSERVATION_NAME_MAX = 120;
 export const OBSERVATION_SUMMARY_MAX = 2000;
 export const PredicateSchema = z.string().regex(/^[a-z][a-z0-9_]*$/, "a predicate is a lowercase slug");

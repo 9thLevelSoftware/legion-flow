@@ -19,7 +19,7 @@ This repository is single-context:
 ├── CONTEXT.md
 ├── docs/adr/
 │   ├── 0001-node-floor.md
-│   └── 0002-pnpm-pin.md (through 0018)
+│   └── 0002-pnpm-pin.md (through 0019)
 └── src/
 ```
 
