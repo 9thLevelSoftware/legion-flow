@@ -1,0 +1,4 @@
+# LF everywhere: generated manifests and fixtures are compared byte for byte
+* text=auto eol=lf
+*.png binary
+*.pem binary
