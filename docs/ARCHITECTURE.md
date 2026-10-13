@@ -7,7 +7,7 @@ Legion Flow is a command-line autonomous software-engineering workflow engine wi
 - `reports/Legion autonomous workflow architecture.md` (the main report; cited below as **R§n**)
 - `reports/Legion architecture AI hub additions.md` (the addendum; cited as **A row n**)
 
-Decisions this document makes that the reports did not settle are recorded in `docs/adr/`.
+The reports are kept with the maintainer and are not in the public repository; the R§ and A-row citations name them for traceability. Decisions this document makes that the reports did not settle are recorded in `docs/adr/`.
 
 **Status legend.** Every component, verb, and diagram in this document carries exactly one of these tags:
 

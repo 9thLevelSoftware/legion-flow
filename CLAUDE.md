@@ -10,7 +10,7 @@ Legion Flow is a CLI-driven autonomous workflow engine (`legion-flow` bin) with 
 
 The engineer-facing design document is `docs/ARCHITECTURE.md` (seven Mermaid diagrams, package map, state model, tech stack, roadmap, status legend on every component). Decisions it makes beyond the research are in `docs/adr/`. Read it before touching anything outside `packages/`.
 
-Its sources remain the cited authority: `reports/Legion autonomous workflow architecture.md` (sections 2, 5, 10, 11 are the ones that bind code). `research_notes/` is raw source material behind that report. `reports/Legion architecture AI hub additions.md` is an addendum that lists deltas to fold into the main report's numbered sections; it changes no verdicts there.
+Its sources remain the cited authority (both `reports/` and `research_notes/` are kept on the maintainer's machine and are not in the public repository): `reports/Legion autonomous workflow architecture.md` (sections 2, 5, 10, 11 are the ones that bind code). `research_notes/` is raw source material behind that report. `reports/Legion architecture AI hub additions.md` is an addendum that lists deltas to fold into the main report's numbered sections; it changes no verdicts there.
 
 ## Commands
 
