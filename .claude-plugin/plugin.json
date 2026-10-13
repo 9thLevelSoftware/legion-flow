@@ -1,0 +1,18 @@
+{
+  "author": {
+    "name": "9th Level Software"
+  },
+  "description": "Legion Flow: a governed workflow engine for coding agents. Host agents drive the loop and stop at every human decision.",
+  "keywords": [
+    "workflow",
+    "governance",
+    "sandbox",
+    "coding-agents"
+  ],
+  "license": "MIT",
+  "name": "legion-flow",
+  "skills": [
+    "./skills/legion-flow"
+  ],
+  "version": "0.0.0"
+}

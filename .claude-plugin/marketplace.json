@@ -1,0 +1,17 @@
+{
+  "name": "legion-flow",
+  "owner": {
+    "name": "9th Level Software"
+  },
+  "plugins": [
+    {
+      "author": {
+        "name": "9th Level Software"
+      },
+      "category": "engineering",
+      "description": "Legion Flow: a governed workflow engine for coding agents. Host agents drive the loop and stop at every human decision.",
+      "name": "legion-flow",
+      "source": "./"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.legion-flow/var/
+.legion-flow/**/sandbox/
+.legion-flow/**/worktrees/
+.legion-flow/**/engine.lock
+*.log
+
+# Kept local, not published
+research_notes/
+reports/
+.claude/

@@ -1,0 +1,33 @@
+{
+  "name": "@9thlevelsoftware/legion-flow-map",
+  "version": "0.0.0",
+  "description": "Legion Flow map: deterministic code facts from a source tree (TypeScript syntax plus compiler resolution)",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run build && node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@9thlevelsoftware/legion-flow-schema": "workspace:*",
+    "typescript": "5.9.3"
+  },
+  "devDependencies": {
+    "@9thlevelsoftware/legion-flow-persist": "workspace:*"
+  }
+}

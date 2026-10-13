@@ -1,0 +1,32 @@
+{
+  "name": "@9thlevelsoftware/legion-flow-engine",
+  "version": "0.0.0",
+  "description": "Legion Flow engine: super-step workflows with per-step snapshots, a pending-writes journal, reducers, retry, typed interrupts, resume, and fork",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run build && node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@9thlevelsoftware/legion-flow-schema": "workspace:*",
+    "@9thlevelsoftware/legion-flow-persist": "workspace:*",
+    "zod": "^4.6.5",
+    "@opentelemetry/api": "1.9.1"
+  }
+}

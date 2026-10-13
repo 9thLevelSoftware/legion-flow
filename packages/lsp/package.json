@@ -1,0 +1,29 @@
+{
+  "name": "@9thlevelsoftware/legion-flow-lsp",
+  "version": "0.0.0",
+  "description": "Legion Flow LSP client: a JSON-RPC client written in-package (no vscode-jsonrpc) that turns a language server into map facts, plus a deterministic fake server for tests",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run build && node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@9thlevelsoftware/legion-flow-schema": "workspace:*"
+  }
+}

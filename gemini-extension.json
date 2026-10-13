@@ -1,0 +1,6 @@
+{
+  "contextFileName": "skills/AGENTS.md",
+  "description": "Legion Flow: a governed workflow engine for coding agents. Host agents drive the loop and stop at every human decision.",
+  "name": "legion-flow",
+  "version": "0.0.0"
+}
