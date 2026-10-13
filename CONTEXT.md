@@ -114,6 +114,10 @@ _Avoid_: response (that is the text inside a resolution)
 The one door through which an agent calls outside tools during a task: it shows only the tools the approved plan named and the risk policy allows, counts every call against a budget, and records each one.
 _Avoid_: proxy (that is the egress proxy), MCP server (when the gateway is meant)
 
+**Draft**:
+A spec or plan written by the project's own agent from a person's request (`spec --draft`, `plan --draft`), validated and written by Legion, and unverified until a decision owner approves it. A drafted task carries only its file contract.
+_Avoid_: proposal (that is an agent's change to the tree, awaiting apply)
+
 **Browser session**:
 A plan task's frozen browser settings (allowed hosts, start page, declared secrets, an app to serve, risk policy, denied tools, a step budget) under which the task's agent drives a browser through the tool gateway; the agent acts on elements by the refs of its latest observation.
 _Avoid_: browser check (that is a deterministic script run as verification)

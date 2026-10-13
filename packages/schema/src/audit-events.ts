@@ -38,6 +38,7 @@ export const AUDIT_EVENT_TYPES = [
   "observation_rejected",
   "plan_approved",
   "plan_created",
+  "plan_drafted",
   "project_initialized",
   "proposal_applied",
   "proposal_auto_applied",
@@ -54,6 +55,7 @@ export const AUDIT_EVENT_TYPES = [
   "spec_challenge_resolved",
   "spec_challenge_round",
   "spec_created",
+  "spec_drafted",
   "tool_calls",
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];

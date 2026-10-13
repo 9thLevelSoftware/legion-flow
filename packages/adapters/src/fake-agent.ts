@@ -9,7 +9,8 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 interface Brief {
-  kind?: "task" | "review" | "challenge" | "naming";
+  kind?: "task" | "review" | "challenge" | "naming" | "draft";
+  mode?: "spec" | "plan";
   outputFile?: string;
   filesAllowed?: string[];
   expectedArtifacts?: string[];
@@ -32,6 +33,9 @@ interface Plan {
   /** For a challenge brief (M4 slice j3): the JSON written as challenge.json, or `challengeRaw` written verbatim. */
   challenge?: unknown;
   challengeRaw?: string;
+  /** For a draft brief: the JSON written as draft.json per mode, or `draftRaw` written verbatim. */
+  draft?: { spec?: unknown; plan?: unknown };
+  draftRaw?: string;
   /** For a naming brief (M4 slice p): the JSON written as naming.json, or `namingRaw` written verbatim. */
   naming?: unknown;
   namingRaw?: string;
@@ -105,6 +109,17 @@ async function main(): Promise<number> {
     const body = plan.challengeRaw ?? JSON.stringify(plan.challenge ?? { concerns: [] }, null, 2);
     await writeFile(join(dirname(promptPath), outputFile), body, "utf8");
     console.log("fake-agent: challenge written");
+    return plan.exitCode ?? 0;
+  }
+
+  if (brief.kind === "draft") {
+    const chosen = brief.mode === "plan" ? plan.draft?.plan : plan.draft?.spec;
+    if (plan.draftRaw === undefined && chosen === undefined) {
+      console.log("fake-agent: no draft scripted");
+      return plan.exitCode ?? 0;
+    }
+    await writeFile(join(dirname(promptPath), outputFile), plan.draftRaw ?? JSON.stringify(chosen, null, 2), "utf8");
+    console.log("fake-agent: draft written");
     return plan.exitCode ?? 0;
   }
 

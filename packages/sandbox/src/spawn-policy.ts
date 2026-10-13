@@ -6,7 +6,7 @@
  * browser-check `serve` commands, `browse`, and doctor's version probes are
  * commands a human wrote or a version read; they are outside this rule.
  */
-export type SpawnKind = "adapter" | "reviewer" | "challenger" | "namer" | "language_server" | "mcp_server";
+export type SpawnKind = "adapter" | "reviewer" | "challenger" | "namer" | "drafter" | "language_server" | "mcp_server";
 
 export interface SpawnVerdict {
   kind: SpawnKind;
@@ -17,7 +17,7 @@ export interface SpawnVerdict {
 }
 
 export function spawnAllowed(input: { kind: SpawnKind; tier: string; hardened: boolean; require?: boolean; member?: { id: string; sandbox?: "require" } }): { ok: true; record: SpawnVerdict } | { ok: false; code: "sandbox_required_by_policy" | "delegation_rejected"; message: string; hint: string } {
-  const what = { adapter: "the coding agent", reviewer: "the reviewer", challenger: "the spec challenger", namer: "the observation namer", language_server: "a language server", mcp_server: "an MCP server" }[input.kind];
+  const what = { adapter: "the coding agent", reviewer: "the reviewer", challenger: "the spec challenger", namer: "the observation namer", drafter: "the drafting agent", language_server: "a language server", mcp_server: "an MCP server" }[input.kind];
   if (!input.hardened && input.require) {
     return { ok: false, code: "sandbox_required_by_policy", message: `project.json sandbox.require is set, so ${what} never runs on the ${input.tier} tier, consent or not.`, hint: "FIX: use the default vm-docker tier, or remove sandbox.require from project.json (a config change that needs new approvals)." };
   }

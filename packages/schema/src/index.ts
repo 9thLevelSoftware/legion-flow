@@ -18,6 +18,7 @@ export * from "./paths.js";
 export * from "./memory.js";
 export * from "./browser.js";
 export * from "./web.js";
+export * from "./draft.js";
 export * from "./bundle.js";
 export * from "./coordinator.js";
 export * from "./challenge.js";
